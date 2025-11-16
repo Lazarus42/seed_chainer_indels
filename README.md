@@ -24,7 +24,7 @@ cargo build --release
 
 ### Parameters
 
-One can specify a few parameters for the simulation described by the `basic_seed_chainer -h` menu. The following are supported: 
+The following parameters are supported: 
 1. `-k INT`: maximum `k`-mer size to iterate up to.
 2. `num_iters`: you must specify the number of iterations for each value of `k`. For example: if the command run is `./target/release/basic_seed_chainer 100 0.10 -k 45 --substring`, then 100 iterations occur for each value of `k`.
 3. `theta_T`: you must specify the total mutation rate `theta_T`, which is the sum of the insertion, substitution, and deletion rates (`theta_T = theta_i + theta_s + theta_d`). Example for `theta_T = 0.10`: `./target/release/basic_seed_chainer 100 0.10 -k 45 --substring`
