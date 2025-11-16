@@ -55,7 +55,7 @@ Mean lower bound for recoverability for k 21 is 0.817117074973988
 Mean extend time 0.0006030821
 Mean chain time 0.00007562292
 ...
-'''
+```
 
 
 ## Plotting results
