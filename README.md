@@ -37,7 +37,7 @@ For each value of `k` between 20 and the maximum `k` specified by the user, the 
 
 is written to the `recoverability.csv` file. Note: the average is computed over the number of iterations, `num_iters`, specified by the user.
 
-Additionally, the values of `k, n = |S|, m' = length of substring passed through mutation channel, lower bound for average recoverability, and average empirical runtime of extension, and  average empirical runtime of chaining` are printed in the following way:
+Additionally, the values of `k, n = |S|, m' = length of substring passed through mutation channel, lower bound for average recoverability, average empirical runtime of extension, and  average empirical runtime of chaining` are printed in the following way:
 
 ```
 Theta = 0.1, alpha = 0.07600154672252499, C = 3.5377487545181285
