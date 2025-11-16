@@ -181,7 +181,7 @@ fn main() {
                 m = n as usize;
             }
             let offset = 100;
-            println!("n = {},  m = {}", n, m);
+            println!("n = {},  m' = {}", n, m);
             
             (0..num_iters)
                 .collect::<Vec<usize>>()
@@ -443,7 +443,7 @@ fn main() {
             let align_mean_per_iter = align_mean as f64 / num_iters as f64;
             let chain_mean_per_iter = chain_mean as f64 / num_iters as f64;
             let expected_runtime = align_mean_per_iter + chain_mean_per_iter;
-            append_result_csv("recoverability.csv", n, m, k, recov_val, expected_runtime); 
+            append_result_csv("recoverability.csv", n, sp_av, k, recov_val, expected_runtime); 
             println!("Mean extend time {}", align_mean / num_iters as f32);
             println!("Mean chain time {}", chain_mean / num_iters as f32);
         }
