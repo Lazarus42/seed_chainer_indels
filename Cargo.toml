@@ -9,10 +9,10 @@ edition = "2018"
 rand = "0.8.3"
 bio = "*"
 fxhash = "*"
-libwfa = "0.1"
 rayon = "*"
 clap = "2.3"
 statistical = "*"
+rand_distr = "0.4"
 
 
 [profile.release]

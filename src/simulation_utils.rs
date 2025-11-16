@@ -1,6 +1,9 @@
 use fxhash::{FxHashMap, FxHashSet};
-use rand::distributions::{Bernoulli, Distribution};
+use rand::distributions::{Bernoulli, Distribution, Uniform};
 use rand::{thread_rng, Rng};
+use std::collections::HashSet;
+use rand_distr::Geometric;
+use rayon::prelude::*;
 
 pub fn gen_rand_string(n: usize) -> Vec<u8> {
     const CHARSET: &[u8] = b"ATCG";
@@ -11,39 +14,232 @@ pub fn gen_rand_string(n: usize) -> Vec<u8> {
             CHARSET[idx] as u8
         })
         .collect();
-
-    //println!("{:?}", return_string);
     return return_string;
 }
 
-pub fn gen_mutated_string(sequence: &[u8], theta: f64) -> (Vec<u8>, Vec<bool>) {
-    let mut return_vec = vec![];
-    let mut return_vec_bool = vec![];
-    let d = Bernoulli::new(theta).unwrap();
-    let mut rng = thread_rng();
+fn dirichlet_111<R: Rng>(rng: &mut R) -> (f64, f64, f64) {
+    let u1: f64 = rng.gen::<f64>().clamp(f64::MIN_POSITIVE, 1.0);
+    let u2: f64 = rng.gen::<f64>().clamp(f64::MIN_POSITIVE, 1.0);
+    let u3: f64 = rng.gen::<f64>().clamp(f64::MIN_POSITIVE, 1.0);
+    let g1 = -u1.ln();
+    let g2 = -u2.ln();
+    let g3 = -u3.ln();
+    let s = g1 + g2 + g3;
+    (g1 / s, g2 / s, g3 / s)
+}
+
+pub fn gen_mutated_string(
+    sequence: &[u8],
+    offset: usize,
+    theta: f64,
+    gamma: f64,
+) -> (Vec<u8>, HashSet<(usize, usize)>) {
+    let mut rng = rand::thread_rng();
     const CHARSET: &[u8] = b"ATCG";
-    //Turn A to T, and C to G with probability theta.
-    for base in sequence {
-        let x = d.sample(&mut rng);
-        let new_base;
-        if x {
+    let p = theta / 3.0;
+    let (w_i, w_s, w_d) = dirichlet_111(&mut rng); 
+    let theta_i = theta * w_i;
+    let theta_s = theta * w_s;
+    let theta_d = theta * w_d; 
+    let mut sp: Vec<u8> = Vec::new();
+    let mut path: HashSet<(usize, usize)> = HashSet::new();
+    let mut x = offset;
+    let mut y = 0;
+    path.insert((x, y));
+
+    for &c in sequence {
+        // let ins = rng.gen::<f64>() < p;
+        let ins = rng.gen::<f64>() < theta_i;
+        let mut ins_len = 0;
+        if ins {
+            let geom = Geometric::new(gamma).unwrap();
+            ins_len = geom.sample(&mut rng) as usize + 1;
+            for _ in 0..ins_len {
+                let ins_chr = CHARSET[rng.gen_range(0..CHARSET.len())];
+                sp.push(ins_chr);
+            }
+        }
+        sp.push(c);
+        // if rng.gen::<f64>() < p
+        if rng.gen::<f64>() < theta_s {
             loop {
-                let idx = rng.gen_range(0..CHARSET.len());
-                let new_base_p = CHARSET[idx];
-                if new_base_p != *base {
-                    new_base = new_base_p;
-                    break
+                let cand = CHARSET[rng.gen_range(0..CHARSET.len())];
+                if cand != c {
+                    sp.pop();
+                    sp.push(cand);
+                    break;
                 }
             }
-            
-            return_vec.push(new_base);
-            return_vec_bool.push(false);
+        }
+        // let del = if rng.gen::<f64>() < p 
+        let del = if rng.gen::<f64>() < theta_d {
+            sp.pop();
+            true
         } else {
-            return_vec.push(*base);
-            return_vec_bool.push(true);
+            false
+        };
+    
+        if del && !ins {
+            x += 1;
+            path.insert((x, y));
+        } else if !del && ins {
+            for _ in 0..ins_len {
+                y += 1;
+                path.insert((x, y));
+            }
+            x += 1;
+            y += 1;
+            path.insert((x, y));
+        } else if del && ins {
+            for _ in 0..ins_len {
+                y += 1;
+                path.insert((x, y));
+            }
+            x += 1;
+            path.insert((x, y));
+        } else {
+            x += 1;
+            y += 1;
+            path.insert((x, y));
         }
     }
-    return (return_vec, return_vec_bool);
+
+    (sp, path)
+}
+
+pub fn extend_gap(anchor_l: (usize, usize), anchor_r: (usize, usize), k: usize) -> HashSet<(usize, usize)> {
+    let (xl, yl) = anchor_l;
+    let (xr, yr) = anchor_r;
+
+    let mut extension = HashSet::with_capacity((xr - xl) * (yr - yl));
+    for x in (xl + k)..xr {
+        for y in (yl + k)..yr {
+            extension.insert((x, y));
+        }
+    }
+    extension
+}
+
+pub fn extend_gap_points(anchor_l: (usize, usize), anchor_r: (usize, usize), k: usize) -> impl Iterator<Item = (usize, usize)> {
+    let (xl, yl) = anchor_l;
+    let (xr, yr) = anchor_r;
+
+    (xl + k..xr).flat_map(move |x| {
+        (yl + k..yr).map(move |y| (x, y))
+    })
+}
+
+pub fn get_align_c(chain: &[(usize, usize)], k: usize) -> HashSet<(usize, usize)> {
+    chain
+        .par_iter()
+        .flat_map_iter(|&(x, y)| (0..k).map(move |l| (x + l, y + l))) // anchor spans
+        .chain(
+            (0..chain.len().saturating_sub(1))
+                .into_par_iter()
+                .flat_map_iter(|i| {
+                    let anchor_l = chain[i + 1];
+                    let anchor_r = chain[i];
+                    extend_gap_points(anchor_l, anchor_r, k)
+                }),
+        )
+        .collect()
+}
+
+
+pub fn overlap_ratio(align_c: &HashSet<(usize, usize)>, hom_path: &HashSet<(usize, usize)>) -> f64 {
+    let intersection_size = align_c.intersection(&hom_path).count() as f64;
+    let denom = hom_path.len() as f64 + 1e-3;
+    intersection_size / denom
+}
+
+pub fn get_hom_count(
+    hom_path: &HashSet<(usize, usize)>,
+    s: &[u8],
+    sp: &[u8],
+    k: usize,
+    offset: usize,
+) -> usize {
+    let mut hom_num = 0;
+    let mut path_diff = 0.0f64;
+    let mut xp = 0;
+    let mut yp = 0;
+
+    for &(x, y) in hom_path.iter() {
+        let mut in_count = 0;
+        let mut letters_match = true;
+
+        for l in 0..k {
+            if hom_path.contains(&(x + l, y + l)) {
+                if x + l < s.len() && y + l < sp.len() {
+                    if s[x + l] != sp[y + l] {
+                        letters_match = false;
+                        break;
+                    }
+                } else {
+                    letters_match = false;
+                    break;
+                }
+                in_count += 1;
+            }
+        }
+
+        if in_count == k && letters_match {
+            hom_num += 1;
+        }
+
+        path_diff = x as f64 - y as f64 - offset as f64;
+        xp = x;
+        yp = y;
+    }
+    hom_num
+}
+
+
+pub fn get_recoverability(
+    best_chain: &[(usize, usize)],
+    hom_path: &HashSet<(usize, usize)>,
+    k: usize,
+) -> (f64) {
+    if hom_path.is_empty() {
+        return 0.0;
+    }
+    let actual_first_anchor_start = best_chain.last().copied();
+    let actual_last_anchor_start  = best_chain.first().copied();
+
+    let pre: usize = match actual_first_anchor_start {
+        Some((ax, ay)) => hom_path
+            .iter()
+            .filter(|&&(x, y)| {
+                (x <= ax && y <= ay) && !(x == ax && y == ay)
+            })
+            .count(),
+        None => 0,
+    };
+    let post: usize = match actual_last_anchor_start {
+        Some((lx, ly)) => {
+            let end_x = lx.saturating_add(k.saturating_sub(1));
+            let end_y = ly.saturating_add(k.saturating_sub(1));
+            hom_path
+                .iter()
+                .filter(|&&(x, y)| {
+                    (x >= end_x && y >= end_y) && !(x == end_x && y == end_y)
+                })
+                .count()
+        }
+        None => 0,
+    };
+
+    let total_hp = hom_path.len();
+    let inside   = total_hp.saturating_sub(pre + post);
+    let recoverability = if total_hp > 0 {
+        (inside as f64 / total_hp as f64).clamp(0.0, 1.0) // = 1 - (pre+post)/total
+    } else {
+        0.0
+    };
+
+    (
+        recoverability
+    )
 }
 
 pub fn check_context_dependent_mutation(
