@@ -14,6 +14,14 @@ clap = "2.3"
 statistical = "*"
 rand_distr = "0.4"
 
+[[bin]]
+name = "main_from_file"
+path = "src/main_from_file.rs"
+
+[[bin]]
+name = "main_exact"
+path = "src/main_exact.rs"
+
 
 [profile.release]
 opt-level = 3
